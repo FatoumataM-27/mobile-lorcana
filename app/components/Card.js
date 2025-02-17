@@ -1,18 +1,19 @@
 import React, { useState } from 'react';
-import { View, Text, Image, StyleSheet, Dimensions, TouchableOpacity, Modal } from 'react-native';
+import { View, Text, Image, StyleSheet, Dimensions, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 
 const windowWidth = Dimensions.get('window').width;
 const windowHeight = Dimensions.get('window').height;
 const cardWidth = windowWidth - 30;
-const imageHeight = (cardWidth * 1.4);
+const imageHeight = windowHeight * 0.5; // 50% de la hauteur de l'écran
 
 export default function Card({ card, onWishlistUpdate, onCollectionUpdate }) {
   const [isInWishlist, setIsInWishlist] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showCollectionModal, setShowCollectionModal] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [normalCount, setNormalCount] = useState(card.normalCount || 0);
   const [shinyCount, setShinyCount] = useState(card.shinyCount || 0);
   const { token } = useAuth();
@@ -113,7 +114,10 @@ export default function Card({ card, onWishlistUpdate, onCollectionUpdate }) {
         </View>
       )}
       
-      <View style={styles.cardInfo}>
+      <TouchableOpacity 
+        style={styles.cardInfo}
+        onPress={() => setShowDetailsModal(true)}
+      >
         <Text style={styles.name} numberOfLines={1}>
           {card.name}
         </Text>
@@ -127,6 +131,12 @@ export default function Card({ card, onWishlistUpdate, onCollectionUpdate }) {
             <View style={styles.powerContainer}>
               <Text style={styles.powerLabel}>FORCE</Text>
               <Text style={styles.powerValue}>{card.power}</Text>
+            </View>
+          )}
+          {card.ink && (
+            <View style={styles.inkContainer}>
+              <Text style={styles.inkLabel}>ENCRE</Text>
+              <Text style={styles.inkValue}>{card.ink}</Text>
             </View>
           )}
         </View>
@@ -149,17 +159,12 @@ export default function Card({ card, onWishlistUpdate, onCollectionUpdate }) {
         {card.effect && (
           <View style={styles.effectContainer}>
             <Text style={styles.effectLabel}>EFFET</Text>
-            <Text style={styles.effect}>{card.effect}</Text>
+            <Text style={styles.effect} numberOfLines={2}>
+              {card.effect}
+            </Text>
           </View>
         )}
-
-        {card.lore && (
-          <View style={styles.loreContainer}>
-            <Text style={styles.loreLabel}>LORE</Text>
-            <Text style={styles.lore}>{card.lore}</Text>
-          </View>
-        )}
-      </View>
+      </TouchableOpacity>
 
       {/* Modal pour la collection */}
       <Modal
@@ -237,6 +242,99 @@ export default function Card({ card, onWishlistUpdate, onCollectionUpdate }) {
             resizeMode="contain"
           />
         </TouchableOpacity>
+      </Modal>
+
+      {/* Modal pour les détails complets */}
+      <Modal
+        visible={showDetailsModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowDetailsModal(false)}
+      >
+        <View style={styles.detailsModalOverlay}>
+          <View style={styles.detailsModalContent}>
+            <ScrollView>
+              <Text style={styles.detailsTitle}>{card.name}</Text>
+              
+              {imageUrl && (
+                <Image
+                  source={{ uri: imageUrl }}
+                  style={styles.detailsImage}
+                  resizeMode="contain"
+                />
+              )}
+
+              <View style={styles.detailsStats}>
+                <View style={styles.statItem}>
+                  <Text style={styles.statLabel}>COÛT</Text>
+                  <Text style={styles.statValue}>{card.cost || 'N/A'}</Text>
+                </View>
+                {card.power && (
+                  <View style={styles.statItem}>
+                    <Text style={styles.statLabel}>FORCE</Text>
+                    <Text style={styles.statValue}>{card.power}</Text>
+                  </View>
+                )}
+                {card.ink && (
+                  <View style={styles.statItem}>
+                    <Text style={styles.statLabel}>ENCRE</Text>
+                    <Text style={styles.statValue}>{card.ink}</Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.detailsBadges}>
+                <Text style={[
+                  styles.type,
+                  card.type ? styles.typeBackground : styles.unknownBackground
+                ]}>
+                  {card.type || 'Type inconnu'}
+                </Text>
+                <Text style={[
+                  styles.rarity,
+                  getRarityStyle(card.rarity)
+                ]}>
+                  {card.rarity || 'Rareté inconnue'}
+                </Text>
+              </View>
+
+              {card.effect && (
+                <View style={styles.detailsSection}>
+                  <Text style={styles.sectionTitle}>EFFET</Text>
+                  <Text style={styles.sectionText}>{card.effect}</Text>
+                </View>
+              )}
+
+              {card.lore && (
+                <View style={styles.detailsSection}>
+                  <Text style={styles.sectionTitle}>LORE</Text>
+                  <Text style={styles.sectionText}>{card.lore}</Text>
+                </View>
+              )}
+
+              {card.artist && (
+                <View style={styles.detailsSection}>
+                  <Text style={styles.sectionTitle}>ARTISTE</Text>
+                  <Text style={styles.sectionText}>{card.artist}</Text>
+                </View>
+              )}
+
+              {card.set && (
+                <View style={styles.detailsSection}>
+                  <Text style={styles.sectionTitle}>SET</Text>
+                  <Text style={styles.sectionText}>{card.set}</Text>
+                </View>
+              )}
+
+              <TouchableOpacity 
+                style={styles.closeButton}
+                onPress={() => setShowDetailsModal(false)}
+              >
+                <Text style={styles.closeButtonText}>Fermer</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -321,61 +419,6 @@ const styles = StyleSheet.create({
     color: '#6B3FA0',
     fontWeight: 'bold',
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    width: '80%',
-    maxWidth: 300,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#6B3FA0',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  collectionType: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  collectionLabel: {
-    fontSize: 16,
-    color: '#444',
-  },
-  countControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  countButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#6B3FA0',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  countButtonText: {
-    fontSize: 20,
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  countText: {
-    fontSize: 18,
-    color: '#444',
-    fontWeight: 'bold',
-    minWidth: 30,
-    textAlign: 'center',
-  },
   imageContainer: {
     width: '100%',
     backgroundColor: '#f8f8f8',
@@ -430,12 +473,20 @@ const styles = StyleSheet.create({
   powerContainer: {
     alignItems: 'center',
   },
+  inkContainer: {
+    alignItems: 'center',
+  },
   costLabel: {
     fontSize: 12,
     color: '#666',
     fontWeight: '600',
   },
   powerLabel: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '600',
+  },
+  inkLabel: {
     fontSize: 12,
     color: '#666',
     fontWeight: '600',
@@ -448,6 +499,11 @@ const styles = StyleSheet.create({
   powerValue: {
     fontSize: 20,
     color: '#e74c3c',
+    fontWeight: 'bold',
+  },
+  inkValue: {
+    fontSize: 20,
+    color: '#3498db',
     fontWeight: 'bold',
   },
   badges: {
@@ -510,21 +566,135 @@ const styles = StyleSheet.create({
     color: '#444',
     lineHeight: 20,
   },
-  loreContainer: {
-    backgroundColor: '#f5f5f5',
-    padding: 12,
-    borderRadius: 8,
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  loreLabel: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '600',
-    marginBottom: 4,
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+    width: '80%',
+    maxWidth: 300,
   },
-  lore: {
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#6B3FA0',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  collectionType: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  collectionLabel: {
+    fontSize: 16,
+    color: '#444',
+  },
+  countControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  countButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#6B3FA0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  countButtonText: {
+    fontSize: 20,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  countText: {
+    fontSize: 18,
+    color: '#444',
+    fontWeight: 'bold',
+    minWidth: 30,
+    textAlign: 'center',
+  },
+  detailsModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  detailsModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+    width: '90%',
+    maxHeight: '90%',
+    maxWidth: 400,
+  },
+  detailsTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#6B3FA0',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  detailsImage: {
+    width: '100%',
+    height: windowWidth * 1.4,
+    marginBottom: 20,
+  },
+  detailsStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 20,
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statLabel: {
     fontSize: 14,
     color: '#666',
-    fontStyle: 'italic',
-    lineHeight: 20,
+    fontWeight: '600',
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#444',
+  },
+  detailsBadges: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 20,
+  },
+  detailsSection: {
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#6B3FA0',
+    marginBottom: 8,
+  },
+  sectionText: {
+    fontSize: 16,
+    color: '#444',
+    lineHeight: 24,
+  },
+  closeButton: {
+    backgroundColor: '#6B3FA0',
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  closeButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

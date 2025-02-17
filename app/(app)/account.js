@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, RefreshControl, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, RefreshControl, ScrollView, ActivityIndicator } from 'react-native';
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
@@ -34,6 +34,14 @@ export default function AccountScreen() {
     }
   }, [token]);
 
+  if (loading && !stats) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#6B3FA0" />
+      </View>
+    );
+  }
+
   if (error) {
     return (
       <View style={styles.container}>
@@ -54,46 +62,50 @@ export default function AccountScreen() {
       }
     >
       <View style={styles.header}>
-        <Text style={styles.username}>{user?.username || 'Utilisateur'}</Text>
+        <Text style={styles.title}>Mon Compte</Text>
+        {user?.email && (
+          <Text style={styles.email}>{user.email}</Text>
+        )}
       </View>
 
-      <View style={styles.statsContainer}>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{stats?.totalCards || 0}</Text>
-          <Text style={styles.statLabel}>Cartes totales</Text>
-        </View>
-
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{stats?.normalCards || 0}</Text>
-          <Text style={styles.statLabel}>Cartes normales</Text>
-        </View>
-
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{stats?.shinyCards || 0}</Text>
-          <Text style={styles.statLabel}>Cartes brillantes</Text>
-        </View>
-      </View>
-
-      <View style={styles.collectionProgress}>
-        <Text style={styles.sectionTitle}>Progression de la collection</Text>
-        
-        {stats?.setProgress?.map((set) => (
-          <View key={set.id} style={styles.setProgress}>
-            <Text style={styles.setName}>{set.name}</Text>
-            <View style={styles.progressBar}>
-              <View 
-                style={[
-                  styles.progressFill,
-                  { width: `${(set.collected / set.total) * 100}%` }
-                ]}
-              />
-            </View>
-            <Text style={styles.progressText}>
-              {set.collected}/{set.total} ({Math.round((set.collected / set.total) * 100)}%)
-            </Text>
+      {stats && (
+        <View style={styles.statsContainer}>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{stats.totalCards || 0}</Text>
+            <Text style={styles.statLabel}>Cartes totales</Text>
           </View>
-        ))}
-      </View>
+
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{stats.uniqueCards || 0}</Text>
+            <Text style={styles.statLabel}>Cartes uniques</Text>
+          </View>
+
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{stats.shinyCards || 0}</Text>
+            <Text style={styles.statLabel}>Cartes brillantes</Text>
+          </View>
+
+          {stats.setProgress && (
+            <View style={styles.progressSection}>
+              <Text style={styles.sectionTitle}>Progression par set</Text>
+              {Object.entries(stats.setProgress).map(([setName, progress]) => (
+                <View key={setName} style={styles.progressItem}>
+                  <Text style={styles.setName}>{setName}</Text>
+                  <View style={styles.progressBar}>
+                    <View 
+                      style={[
+                        styles.progressFill,
+                        { width: `${Math.min(100, progress * 100)}%` }
+                      ]} 
+                    />
+                  </View>
+                  <Text style={styles.progressText}>{Math.round(progress * 100)}%</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -103,42 +115,59 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
   header: {
     padding: 20,
     backgroundColor: '#6B3FA0',
-    alignItems: 'center',
   },
-  username: {
-    fontSize: 24,
+  title: {
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#fff',
+    marginBottom: 8,
+  },
+  email: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.8)',
   },
   statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
     padding: 20,
-    backgroundColor: '#fff',
+  },
+  statCard: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 15,
+    alignItems: 'center',
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
   },
-  statCard: {
-    alignItems: 'center',
-  },
   statValue: {
-    fontSize: 24,
+    fontSize: 32,
     fontWeight: 'bold',
     color: '#6B3FA0',
+    marginBottom: 8,
   },
   statLabel: {
-    fontSize: 14,
+    fontSize: 16,
     color: '#666',
-    marginTop: 4,
   },
-  collectionProgress: {
-    padding: 20,
+  errorText: {
+    color: '#c62828',
+    textAlign: 'center',
+    margin: 20,
+    fontSize: 16,
+  },
+  progressSection: {
+    marginTop: 20,
   },
   sectionTitle: {
     fontSize: 20,
@@ -146,20 +175,20 @@ const styles = StyleSheet.create({
     color: '#444',
     marginBottom: 15,
   },
-  setProgress: {
+  progressItem: {
     marginBottom: 15,
   },
   setName: {
     fontSize: 16,
     color: '#444',
-    marginBottom: 5,
+    marginBottom: 8,
   },
   progressBar: {
     height: 8,
     backgroundColor: '#f0f0f0',
     borderRadius: 4,
     overflow: 'hidden',
-    marginBottom: 5,
+    marginBottom: 4,
   },
   progressFill: {
     height: '100%',
@@ -168,10 +197,6 @@ const styles = StyleSheet.create({
   progressText: {
     fontSize: 14,
     color: '#666',
-  },
-  errorText: {
-    color: '#ff0000',
-    textAlign: 'center',
-    marginVertical: 20,
+    textAlign: 'right',
   },
 });

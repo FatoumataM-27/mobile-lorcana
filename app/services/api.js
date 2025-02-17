@@ -11,9 +11,33 @@ const axiosInstance = axios.create({
   }
 });
 
+// Intercepteur pour logger les requêtes
+axiosInstance.interceptors.request.use(
+  (config) => {
+    console.log('Request:', {
+      method: config.method.toUpperCase(),
+      url: config.url,
+      baseURL: config.baseURL,
+      headers: config.headers,
+    });
+    return config;
+  },
+  (error) => {
+    console.error('Request Error:', error);
+    return Promise.reject(error);
+  }
+);
+
 // Intercepteur pour gérer les erreurs
 axiosInstance.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    console.log('Response:', {
+      status: response.status,
+      url: response.config.url,
+      data: response.data,
+    });
+    return response;
+  },
   (error) => {
     console.error('Erreur API:', error);
     
@@ -65,7 +89,7 @@ const api = {
 
   logout: async (token) => {
     try {
-      const response = await axiosInstance.post('/logout', {}, {
+      const response = await axiosInstance.post('/logout', null, {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;
@@ -240,7 +264,7 @@ const api = {
 
   getCollectionStats: async (token) => {
     try {
-      const response = await axiosInstance.get('/collection/stats', {
+      const response = await axiosInstance.get('/api/collection/stats', {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;
