@@ -20,7 +20,11 @@ export default function SetCard({ set }) {
   const router = useRouter();
 
   const navigateToCards = () => {
-    router.push(`/sets/${set.id}/cards`);
+    console.log('Navigating to set cards with ID:', set.id);
+    router.push({
+      pathname: '/set/[id]',
+      params: { id: set.id }
+    });
   };
 
   return (

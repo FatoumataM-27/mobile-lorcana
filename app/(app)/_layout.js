@@ -39,6 +39,26 @@ export default function AppLayout() {
       />
       
       <Tabs.Screen
+        name="cards"
+        options={{
+          title: 'Cartes',
+          tabBarIcon: ({ color, size }) => (
+            <FontAwesome name="th" size={size} color={color} />
+          ),
+        }}
+      />
+      
+      <Tabs.Screen
+        name="collection"
+        options={{
+          title: 'Ma Collection',
+          tabBarIcon: ({ color, size }) => (
+            <FontAwesome name="folder-open" size={size} color={color} />
+          ),
+        }}
+      />
+      
+      <Tabs.Screen
         name="wishlist"
         options={{
           title: 'Wishlist',

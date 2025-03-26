@@ -1,40 +1,82 @@
-import React, { useState } from 'react';
-import { View, Text, Image, StyleSheet, Dimensions, TouchableOpacity, Modal, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, Image, StyleSheet, Dimensions, TouchableOpacity, Modal, ScrollView, ActivityIndicator } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
+import { Ionicons } from '@expo/vector-icons';
+import { colors } from '../theme/colors';
 
-const windowWidth = Dimensions.get('window').width;
-const windowHeight = Dimensions.get('window').height;
-const cardWidth = windowWidth - 30;
-const imageHeight = windowHeight * 0.5; // 50% de la hauteur de l'écran
+const { width } = Dimensions.get('window');
+const cardWidth = (width / 2) - 15;
 
 export default function Card({ card, onWishlistUpdate, onCollectionUpdate }) {
-  const [isInWishlist, setIsInWishlist] = useState(false);
+  const [isInWishlist, setIsInWishlist] = useState(card.inWishlist || false);
   const [loading, setLoading] = useState(false);
-  const [showCollectionModal, setShowCollectionModal] = useState(false);
-  const [showImageModal, setShowImageModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showCollectionModal, setShowCollectionModal] = useState(false);
   const [normalCount, setNormalCount] = useState(card.normalCount || 0);
   const [shinyCount, setShinyCount] = useState(card.shinyCount || 0);
   const { token } = useAuth();
+  
+  // Utiliser l'URL d'image appropriée
   const imageUrl = card.image_url || card.imageUrl || card.image || card.artwork_url;
+  
+  // Vérifier si la carte est dans la wishlist au chargement
+  useEffect(() => {
+    checkWishlistStatus();
+  }, []);
+  
+  const checkWishlistStatus = async () => {
+    try {
+      const wishlistResponse = await api.getWishlist(token);
+      const isInList = wishlistResponse.data.some(item => item.id === card.id);
+      setIsInWishlist(isInList);
+    } catch (error) {
+      console.error('Erreur vérification wishlist:', error);
+    }
+  };
 
   const toggleWishlist = async () => {
     if (loading) return;
     
     try {
       setLoading(true);
-      if (isInWishlist) {
-        await api.removeFromWishlist(token, card.id);
-      } else {
-        await api.addToWishlist(token, card.id);
-      }
-      setIsInWishlist(!isInWishlist);
-      if (onWishlistUpdate) {
-        onWishlistUpdate();
+      
+      // Update UI state immediately for better user experience
+      const newWishlistState = !isInWishlist;
+      setIsInWishlist(newWishlistState);
+      
+      try {
+        if (newWishlistState) {
+          // Adding to wishlist
+          console.log('Adding to wishlist:', card.id);
+          await api.addToWishlist(token, card.id);
+        } else {
+          // Removing from wishlist
+          console.log('Removing from wishlist:', card.id);
+          await api.removeFromWishlist(token, card.id);
+        }
+        
+        // Notify parent component about the update
+        if (onWishlistUpdate) {
+          onWishlistUpdate();
+        }
+      } catch (error) {
+        // Special handling for "already in wishlist" error
+        if (error.message && error.message.includes("already in wishlist")) {
+          console.log("Card is already in wishlist, keeping UI state as is");
+          // Don't revert the UI state since the card is actually in the wishlist
+        } else {
+          // Revert UI state for other errors
+          setIsInWishlist(!newWishlistState);
+          throw error; // Re-throw to be caught by outer catch block
+        }
       }
     } catch (error) {
       console.error('Erreur wishlist:', error);
+      // Don't show alert for "already in wishlist" error
+      if (!error.message || !error.message.includes("already in wishlist")) {
+        alert('Erreur lors de la mise à jour de la wishlist: ' + (error.message || 'Erreur inconnue'));
+      }
     } finally {
       setLoading(false);
     }
@@ -46,286 +88,197 @@ export default function Card({ card, onWishlistUpdate, onCollectionUpdate }) {
       const currentCount = isShiny ? shinyCount : normalCount;
       const newCount = Math.max(0, currentCount + (increment ? 1 : -1));
       
-      if (newCount === 0) {
-        await api.removeFromCollection(token, card.id);
-      } else {
-        await api.updateCollectionCard(token, card.id, newCount, isShiny);
-      }
-
+      console.log('Updating collection:', {
+        cardId: card.id,
+        isShiny,
+        currentCount,
+        newCount,
+        increment
+      });
+      
+      // Update local state immediately for better user experience
       if (isShiny) {
         setShinyCount(newCount);
       } else {
         setNormalCount(newCount);
       }
+      
+      // Then update the backend
+      try {
+        // Préparer les quantités pour l'API
+        const quantities = {
+          normal: isShiny ? normalCount : newCount,
+          foil: isShiny ? newCount : shinyCount
+        };
+        
+        // Utiliser l'endpoint correct pour mettre à jour les quantités
+        console.log(`Updating card ${card.id} with quantities:`, quantities);
+        await api.updateOwnedCards(token, card.id, quantities);
 
-      if (onCollectionUpdate) {
-        onCollectionUpdate();
+        // Notify parent component about the update
+        if (onCollectionUpdate) {
+          onCollectionUpdate();
+        }
+      } catch (error) {
+        // Handle specific collection errors
+        if (error.message && (
+            error.message.includes("already in collection") || 
+            error.message.includes("already exists")
+          )) {
+          console.log("Card collection state already matches desired state, keeping UI as is");
+          // Don't revert the UI state since the server state matches what we want
+        } else {
+          // Revert local state for other errors
+          if (isShiny) {
+            setShinyCount(currentCount);
+          } else {
+            setNormalCount(currentCount);
+          }
+          throw error; // Re-throw to be caught by outer catch block
+        }
       }
     } catch (error) {
       console.error('Erreur collection:', error);
+      // Don't show alert for specific expected errors
+      if (!error.message || !(
+          error.message.includes("already in collection") || 
+          error.message.includes("already exists")
+        )) {
+        alert('Erreur lors de la mise à jour de la collection: ' + (error.message || 'Erreur inconnue'));
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  const openDetailsModal = () => {
+    setShowDetailsModal(true);
+  };
+
+  const openCollectionModal = () => {
+    setShowCollectionModal(true);
+  };
+
   return (
-    <View style={styles.card}>
-      <View style={styles.buttonContainer}>
+    <View style={styles.cardContainer}>
+      <Image 
+        source={{ uri: imageUrl }} 
+        style={styles.cardImage} 
+        resizeMode="cover"
+      />
+      <Text style={styles.cardName} numberOfLines={1}>{card.name}</Text>
+      
+      <View style={styles.actionContainer}>
         <TouchableOpacity 
-          style={[
-            styles.wishlistButton,
-            isInWishlist && styles.wishlistButtonActive
-          ]}
+          style={styles.actionButton} 
+          onPress={openDetailsModal}
+        >
+          <Ionicons name="eye" size={24} color="black" />
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.actionButton} 
           onPress={toggleWishlist}
           disabled={loading}
         >
-          <Text style={[
-            styles.wishlistButtonText,
-            isInWishlist && styles.wishlistButtonTextActive
-          ]}>
-            {loading ? '...' : (isInWishlist ? '★' : '☆')}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={styles.collectionButton}
-          onPress={() => setShowCollectionModal(true)}
-        >
-          <Text style={styles.collectionButtonText}>
-            {normalCount + shinyCount > 0 ? `${normalCount + shinyCount}×` : '+'}
-          </Text>
+          <Ionicons 
+            name={isInWishlist ? "heart" : "heart-outline"} 
+            size={24} 
+            color={isInWishlist ? "red" : "black"} 
+          />
+          {loading && <ActivityIndicator size="small" color="#999" style={styles.loader} />}
         </TouchableOpacity>
       </View>
-
-      {imageUrl ? (
-        <TouchableOpacity 
-          onPress={() => setShowImageModal(true)}
-          style={[styles.imageContainer, { height: imageHeight }]}
-        >
-          <Image
-            source={{ uri: imageUrl }}
-            style={styles.cardImage}
-            resizeMode="contain"
-          />
-        </TouchableOpacity>
-      ) : (
-        <View style={[styles.noImageContainer, { height: imageHeight * 0.6 }]}>
-          <Text style={styles.noImageText}>Image non disponible</Text>
-        </View>
-      )}
       
-      <TouchableOpacity 
-        style={styles.cardInfo}
-        onPress={() => setShowDetailsModal(true)}
-      >
-        <Text style={styles.name} numberOfLines={1}>
-          {card.name}
-        </Text>
-
-        <View style={styles.mainInfo}>
-          <View style={styles.costContainer}>
-            <Text style={styles.costLabel}>COÛT</Text>
-            <Text style={styles.costValue}>{card.cost || 'N/A'}</Text>
-          </View>
-          {card.power && (
-            <View style={styles.powerContainer}>
-              <Text style={styles.powerLabel}>FORCE</Text>
-              <Text style={styles.powerValue}>{card.power}</Text>
-            </View>
-          )}
-          {card.ink && (
-            <View style={styles.inkContainer}>
-              <Text style={styles.inkLabel}>ENCRE</Text>
-              <Text style={styles.inkValue}>{card.ink}</Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.badges}>
-          <Text style={[
-            styles.type,
-            card.type ? styles.typeBackground : styles.unknownBackground
-          ]}>
-            {card.type || 'Type inconnu'}
-          </Text>
-          <Text style={[
-            styles.rarity,
-            getRarityStyle(card.rarity)
-          ]}>
-            {card.rarity || 'Rareté inconnue'}
-          </Text>
-        </View>
-
-        {card.effect && (
-          <View style={styles.effectContainer}>
-            <Text style={styles.effectLabel}>EFFET</Text>
-            <Text style={styles.effect} numberOfLines={2}>
-              {card.effect}
-            </Text>
-          </View>
-        )}
-      </TouchableOpacity>
-
-      {/* Modal pour la collection */}
-      <Modal
-        visible={showCollectionModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowCollectionModal(false)}
-      >
-        <TouchableOpacity 
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowCollectionModal(false)}
-        >
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Collection</Text>
-            
-            <View style={styles.collectionType}>
-              <Text style={styles.collectionLabel}>Normal</Text>
-              <View style={styles.countControls}>
-                <TouchableOpacity 
-                  style={styles.countButton}
-                  onPress={() => updateCollection(false, false)}
-                  disabled={normalCount === 0}
-                >
-                  <Text style={styles.countButtonText}>-</Text>
-                </TouchableOpacity>
-                <Text style={styles.countText}>{normalCount}</Text>
-                <TouchableOpacity 
-                  style={styles.countButton}
-                  onPress={() => updateCollection(false, true)}
-                >
-                  <Text style={styles.countButtonText}>+</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <View style={styles.collectionType}>
-              <Text style={styles.collectionLabel}>Brillant</Text>
-              <View style={styles.countControls}>
-                <TouchableOpacity 
-                  style={styles.countButton}
-                  onPress={() => updateCollection(true, false)}
-                  disabled={shinyCount === 0}
-                >
-                  <Text style={styles.countButtonText}>-</Text>
-                </TouchableOpacity>
-                <Text style={styles.countText}>{shinyCount}</Text>
-                <TouchableOpacity 
-                  style={styles.countButton}
-                  onPress={() => updateCollection(true, true)}
-                >
-                  <Text style={styles.countButtonText}>+</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* Modal pour l'image plein écran */}
-      <Modal
-        visible={showImageModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowImageModal(false)}
-      >
-        <TouchableOpacity 
-          style={styles.imageModalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowImageModal(false)}
-        >
-          <Image
-            source={{ uri: imageUrl }}
-            style={styles.fullscreenImage}
-            resizeMode="contain"
-          />
-        </TouchableOpacity>
-      </Modal>
-
-      {/* Modal pour les détails complets */}
+      {/* Modal pour les détails de la carte */}
       <Modal
         visible={showDetailsModal}
         transparent={true}
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setShowDetailsModal(false)}
       >
-        <View style={styles.detailsModalOverlay}>
-          <View style={styles.detailsModalContent}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
             <ScrollView>
-              <Text style={styles.detailsTitle}>{card.name}</Text>
+              <Image 
+                source={{ uri: imageUrl }} 
+                style={styles.modalImage} 
+                resizeMode="contain"
+              />
               
-              {imageUrl && (
-                <Image
-                  source={{ uri: imageUrl }}
-                  style={styles.detailsImage}
-                  resizeMode="contain"
-                />
-              )}
-
-              <View style={styles.detailsStats}>
-                <View style={styles.statItem}>
-                  <Text style={styles.statLabel}>COÛT</Text>
-                  <Text style={styles.statValue}>{card.cost || 'N/A'}</Text>
-                </View>
-                {card.power && (
-                  <View style={styles.statItem}>
-                    <Text style={styles.statLabel}>FORCE</Text>
-                    <Text style={styles.statValue}>{card.power}</Text>
-                  </View>
-                )}
-                {card.ink && (
-                  <View style={styles.statItem}>
-                    <Text style={styles.statLabel}>ENCRE</Text>
-                    <Text style={styles.statValue}>{card.ink}</Text>
-                  </View>
-                )}
+              <Text style={styles.modalTitle}>{card.name}</Text>
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Type:</Text>
+                <Text style={styles.detailValue}>{card.type || 'Non spécifié'}</Text>
               </View>
-
-              <View style={styles.detailsBadges}>
-                <Text style={[
-                  styles.type,
-                  card.type ? styles.typeBackground : styles.unknownBackground
-                ]}>
-                  {card.type || 'Type inconnu'}
-                </Text>
-                <Text style={[
-                  styles.rarity,
-                  getRarityStyle(card.rarity)
-                ]}>
-                  {card.rarity || 'Rareté inconnue'}
-                </Text>
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Rareté:</Text>
+                <Text style={styles.detailValue}>{card.rarity || 'Non spécifiée'}</Text>
               </View>
-
-              {card.effect && (
-                <View style={styles.detailsSection}>
-                  <Text style={styles.sectionTitle}>EFFET</Text>
-                  <Text style={styles.sectionText}>{card.effect}</Text>
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Coût:</Text>
+                <Text style={styles.detailValue}>{card.cost || 'Non spécifié'}</Text>
+              </View>
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Puissance:</Text>
+                <Text style={styles.detailValue}>{card.strength || 'N/A'}</Text>
+              </View>
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Défense:</Text>
+                <Text style={styles.detailValue}>{card.willpower || 'N/A'}</Text>
+              </View>
+              
+              <Text style={styles.detailLabel}>Description:</Text>
+              <Text style={styles.description}>{card.description || 'Aucune description disponible'}</Text>
+              
+              <View style={styles.collectionSection}>
+                <Text style={styles.sectionTitle}>Ma collection</Text>
+                <View style={styles.quantityRow}>
+                  <Text>Normal: {normalCount}</Text>
+                  <View style={styles.quantityButtons}>
+                    <TouchableOpacity 
+                      style={[styles.quantityButton, normalCount === 0 && styles.disabledButton]} 
+                      onPress={() => updateCollection(false, false)}
+                      disabled={normalCount === 0 || loading}
+                    >
+                      <Text style={styles.quantityButtonText}>-</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={styles.quantityButton} 
+                      onPress={() => updateCollection(false, true)}
+                      disabled={loading}
+                    >
+                      <Text style={styles.quantityButtonText}>+</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              )}
-
-              {card.lore && (
-                <View style={styles.detailsSection}>
-                  <Text style={styles.sectionTitle}>LORE</Text>
-                  <Text style={styles.sectionText}>{card.lore}</Text>
+                
+                <View style={styles.quantityRow}>
+                  <Text>Brillant: {shinyCount}</Text>
+                  <View style={styles.quantityButtons}>
+                    <TouchableOpacity 
+                      style={[styles.quantityButton, shinyCount === 0 && styles.disabledButton]} 
+                      onPress={() => updateCollection(true, false)}
+                      disabled={shinyCount === 0 || loading}
+                    >
+                      <Text style={styles.quantityButtonText}>-</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={styles.quantityButton} 
+                      onPress={() => updateCollection(true, true)}
+                      disabled={loading}
+                    >
+                      <Text style={styles.quantityButtonText}>+</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              )}
-
-              {card.artist && (
-                <View style={styles.detailsSection}>
-                  <Text style={styles.sectionTitle}>ARTISTE</Text>
-                  <Text style={styles.sectionText}>{card.artist}</Text>
-                </View>
-              )}
-
-              {card.set && (
-                <View style={styles.detailsSection}>
-                  <Text style={styles.sectionTitle}>SET</Text>
-                  <Text style={styles.sectionText}>{card.set}</Text>
-                </View>
-              )}
-
+              </View>
+              
               <TouchableOpacity 
                 style={styles.closeButton}
                 onPress={() => setShowDetailsModal(false)}
@@ -340,361 +293,135 @@ export default function Card({ card, onWishlistUpdate, onCollectionUpdate }) {
   );
 }
 
-function getRarityStyle(rarity) {
-  switch (rarity?.toLowerCase()) {
-    case 'commune':
-      return styles.rarityCommon;
-    case 'inhabituelle':
-      return styles.rarityUncommon;
-    case 'rare':
-      return styles.rarityRare;
-    case 'très rare':
-      return styles.rarityVeryRare;
-    case 'légendaire':
-      return styles.rarityLegendary;
-    default:
-      return styles.rarityUnknown;
-  }
-}
-
 const styles = StyleSheet.create({
-  card: {
+  cardContainer: {
     width: cardWidth,
+    margin: 5,
     backgroundColor: '#fff',
-    borderRadius: 12,
-    marginBottom: 15,
+    borderRadius: 10,
+    overflow: 'hidden',
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
-    alignSelf: 'center',
-  },
-  buttonContainer: {
-    position: 'absolute',
-    right: 10,
-    top: 10,
-    zIndex: 1,
-    flexDirection: 'row',
-    gap: 8,
-  },
-  wishlistButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-  },
-  wishlistButtonActive: {
-    backgroundColor: '#6B3FA0',
-  },
-  wishlistButtonText: {
-    fontSize: 24,
-    color: '#6B3FA0',
-  },
-  wishlistButtonTextActive: {
-    color: '#fff',
-  },
-  collectionButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-  },
-  collectionButtonText: {
-    fontSize: 18,
-    color: '#6B3FA0',
-    fontWeight: 'bold',
-  },
-  imageContainer: {
-    width: '100%',
-    backgroundColor: '#f8f8f8',
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-    overflow: 'hidden',
-  },
-  noImageContainer: {
-    width: '100%',
-    backgroundColor: '#f0f0f0',
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  noImageText: {
-    color: '#666',
-    fontSize: 16,
+    shadowRadius: 4,
   },
   cardImage: {
     width: '100%',
-    height: '100%',
+    height: cardWidth * 1.4, // Ratio carte
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
   },
-  imageModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  fullscreenImage: {
-    width: windowWidth,
-    height: windowHeight,
-  },
-  cardInfo: {
-    padding: 12,
-    gap: 12,
-  },
-  name: {
-    fontSize: 24,
+  cardName: {
+    fontSize: 14,
     fontWeight: 'bold',
-    color: '#6B3FA0',
     textAlign: 'center',
+    padding: 8,
   },
-  mainInfo: {
+  actionContainer: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 20,
+    justifyContent: 'space-around',
+    paddingBottom: 8,
   },
-  costContainer: {
-    alignItems: 'center',
-  },
-  powerContainer: {
-    alignItems: 'center',
-  },
-  inkContainer: {
-    alignItems: 'center',
-  },
-  costLabel: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '600',
-  },
-  powerLabel: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '600',
-  },
-  inkLabel: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '600',
-  },
-  costValue: {
-    fontSize: 20,
-    color: '#444',
-    fontWeight: 'bold',
-  },
-  powerValue: {
-    fontSize: 20,
-    color: '#e74c3c',
-    fontWeight: 'bold',
-  },
-  inkValue: {
-    fontSize: 20,
-    color: '#3498db',
-    fontWeight: 'bold',
-  },
-  badges: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 10,
-    flexWrap: 'wrap',
-  },
-  type: {
-    fontSize: 14,
-    color: '#666',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  actionButton: {
+    padding: 5,
     borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
   },
-  typeBackground: {
-    backgroundColor: '#f0f0f0',
+  loader: {
+    position: 'absolute',
   },
-  unknownBackground: {
-    backgroundColor: '#f8f8f8',
-  },
-  rarity: {
-    fontSize: 14,
-    color: '#fff',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  rarityCommon: {
-    backgroundColor: '#95a5a6',
-  },
-  rarityUncommon: {
-    backgroundColor: '#2ecc71',
-  },
-  rarityRare: {
-    backgroundColor: '#3498db',
-  },
-  rarityVeryRare: {
-    backgroundColor: '#9b59b6',
-  },
-  rarityLegendary: {
-    backgroundColor: '#f1c40f',
-  },
-  rarityUnknown: {
-    backgroundColor: '#bdc3c7',
-  },
-  effectContainer: {
-    backgroundColor: '#f8f8f8',
-    padding: 12,
-    borderRadius: 8,
-  },
-  effectLabel: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  effect: {
-    fontSize: 14,
-    color: '#444',
-    lineHeight: 20,
-  },
-  modalOverlay: {
+  modalContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   modalContent: {
+    width: '90%',
+    maxHeight: '90%',
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    width: '80%',
-    maxWidth: 300,
+    borderRadius: 10,
+    padding: 15,
+  },
+  modalImage: {
+    width: '100%',
+    height: 300,
+    marginBottom: 15,
   },
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#6B3FA0',
-    marginBottom: 20,
+    marginBottom: 15,
     textAlign: 'center',
   },
-  collectionType: {
+  detailRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  detailLabel: {
+    fontWeight: 'bold',
+    marginRight: 5,
+    fontSize: 16,
+  },
+  detailValue: {
+    fontSize: 16,
+  },
+  description: {
+    marginTop: 5,
+    marginBottom: 15,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  collectionSection: {
+    marginTop: 15,
+    padding: 10,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  quantityRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 10,
   },
-  collectionLabel: {
-    fontSize: 16,
-    color: '#444',
-  },
-  countControls: {
+  quantityButtons: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
   },
-  countButton: {
+  quantityButton: {
     width: 30,
     height: 30,
+    backgroundColor: colors.primary,
     borderRadius: 15,
-    backgroundColor: '#6B3FA0',
     justifyContent: 'center',
     alignItems: 'center',
+    marginLeft: 10,
   },
-  countButtonText: {
-    fontSize: 20,
+  quantityButtonText: {
     color: '#fff',
-    fontWeight: 'bold',
-  },
-  countText: {
     fontSize: 18,
-    color: '#444',
     fontWeight: 'bold',
-    minWidth: 30,
-    textAlign: 'center',
   },
-  detailsModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  detailsModalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    width: '90%',
-    maxHeight: '90%',
-    maxWidth: 400,
-  },
-  detailsTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#6B3FA0',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  detailsImage: {
-    width: '100%',
-    height: windowWidth * 1.4,
-    marginBottom: 20,
-  },
-  detailsStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 20,
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statLabel: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '600',
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#444',
-  },
-  detailsBadges: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 10,
-    marginBottom: 20,
-  },
-  detailsSection: {
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#6B3FA0',
-    marginBottom: 8,
-  },
-  sectionText: {
-    fontSize: 16,
-    color: '#444',
-    lineHeight: 24,
+  disabledButton: {
+    backgroundColor: '#ccc',
   },
   closeButton: {
-    backgroundColor: '#6B3FA0',
-    padding: 15,
-    borderRadius: 8,
+    backgroundColor: colors.primary,
+    padding: 12,
+    borderRadius: 25,
     alignItems: 'center',
     marginTop: 20,
   },
   closeButtonText: {
     color: '#fff',
-    fontSize: 16,
     fontWeight: 'bold',
+    fontSize: 16,
   },
 });

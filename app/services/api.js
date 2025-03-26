@@ -188,8 +188,9 @@ const api = {
 
   addToWishlist: async (token, cardId) => {
     try {
-      const response = await axiosInstance.post('/wishlist', 
-        { cardId },
+      // API docs show the endpoint is /wishlist/add with card_id parameter
+      const response = await axiosInstance.post('/wishlist/add', 
+        { card_id: cardId },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       return response.data;
@@ -201,9 +202,11 @@ const api = {
 
   removeFromWishlist: async (token, cardId) => {
     try {
-      const response = await axiosInstance.delete(`/wishlist/${cardId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      // API docs show the endpoint is /wishlist/remove with card_id parameter
+      const response = await axiosInstance.post('/wishlist/remove', 
+        { card_id: cardId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       return response.data;
     } catch (error) {
       console.error('Erreur suppression wishlist:', error);
@@ -214,7 +217,8 @@ const api = {
   // Collection endpoints
   getCollection: async (token) => {
     try {
-      const response = await axiosInstance.get('/collection', {
+      // API docs show endpoint is /me/cards
+      const response = await axiosInstance.get('/me/cards', {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;
@@ -226,8 +230,12 @@ const api = {
 
   addToCollection: async (token, cardId, quantity = 1, isShiny = false) => {
     try {
-      const response = await axiosInstance.post('/collection', 
-        { cardId, quantity, isShiny },
+      // API docs show endpoint is /me/{id}/update-owned with normal and foil parameters
+      const response = await axiosInstance.post(`/me/${cardId}/update-owned`, 
+        { 
+          normal: isShiny ? 0 : quantity,
+          foil: isShiny ? quantity : 0
+        },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       return response.data;
@@ -239,8 +247,12 @@ const api = {
 
   updateCollectionCard: async (token, cardId, quantity, isShiny) => {
     try {
-      const response = await axiosInstance.put(`/collection/${cardId}`,
-        { quantity, isShiny },
+      // API docs show endpoint is /me/{id}/update-owned with normal and foil parameters
+      const response = await axiosInstance.post(`/me/${cardId}/update-owned`,
+        { 
+          normal: isShiny ? 0 : quantity,
+          foil: isShiny ? quantity : 0
+        },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       return response.data;
@@ -252,9 +264,11 @@ const api = {
 
   removeFromCollection: async (token, cardId) => {
     try {
-      const response = await axiosInstance.delete(`/collection/${cardId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      // API docs show endpoint is /me/{id}/update-owned with normal and foil parameters set to 0
+      const response = await axiosInstance.post(`/me/${cardId}/update-owned`, 
+        { normal: 0, foil: 0 },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       return response.data;
     } catch (error) {
       console.error('Erreur suppression collection:', error);
@@ -264,7 +278,7 @@ const api = {
 
   getCollectionStats: async (token) => {
     try {
-      const response = await axiosInstance.get('/api/collection/stats', {
+      const response = await axiosInstance.get('/me/cards', {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;
@@ -272,7 +286,20 @@ const api = {
       console.error('Erreur statistiques collection:', error);
       throw error;
     }
-  }
+  },
+
+  // Cards endpoints
+  getAllCards: async (token) => {
+    try {
+      const response = await axiosInstance.get('/me/cards', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Erreur récupération de toutes les cartes:', error);
+      throw error;
+    }
+  },
 };
 
 export default api;

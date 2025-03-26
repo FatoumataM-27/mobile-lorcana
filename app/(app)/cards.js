@@ -1,62 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import { View, FlatList, StyleSheet, Text, ActivityIndicator, TextInput, TouchableOpacity } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
-import { useAuth } from '../../contexts/AuthContext';
-import api from '../../services/api';
-import Card from '../../components/Card';
-import { colors } from '../../theme/colors';
+import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useAuth } from '../contexts/AuthContext';
+import api from '../services/api';
+import Card from '../components/Card';
+import { colors } from '../theme/colors';
 
-export default function SetCards() {
-  const { id } = useLocalSearchParams();
-  const { token } = useAuth();
+export default function CardsScreen() {
   const [cards, setCards] = useState([]);
   const [filteredCards, setFilteredCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('all'); // 'all', 'wishlist', 'owned'
-  const [setDetails, setSetDetails] = useState(null);
+  const { token } = useAuth();
 
   useEffect(() => {
-    loadSetDetails();
     loadCards();
-  }, [id]);
-
-  const loadSetDetails = async () => {
-    try {
-      const response = await api.getSetDetails(token, id);
-      if (response && response.data) {
-        setSetDetails(response.data);
-      }
-    } catch (error) {
-      console.error('Erreur lors du chargement des détails du set:', error);
-    }
-  };
+  }, [token]);
 
   const loadCards = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      const response = await api.getSetCards(token, id);
+      // Charger toutes les cartes
+      const response = await api.getAllCards(token);
       if (response && response.data) {
-        // Formater les données des cartes pour qu'elles soient compatibles avec le composant Card
-        const formattedCards = response.data.map(card => ({
-          ...card,
-          normalCount: card.normal_quantity || 0,
-          shinyCount: card.foil_quantity || 0,
-          inWishlist: card.in_wishlist || false,
-          imageUrl: card.thumbnail || card.image_url || card.image
-        }));
-        
-        setCards(formattedCards);
-        applyFilters(formattedCards, searchQuery, activeFilter);
+        setCards(response.data);
+        applyFilters(response.data, searchQuery, activeFilter);
       } else {
         throw new Error('Format de réponse invalide');
       }
-    } catch (error) {
-      console.error('Erreur lors du chargement des cartes:', error);
-      setError(error.message || 'Impossible de charger les cartes. Veuillez réessayer.');
+    } catch (err) {
+      console.error('Erreur lors du chargement des cartes:', err);
+      setError(err.message || 'Impossible de charger les cartes. Veuillez réessayer.');
     } finally {
       setLoading(false);
     }
@@ -121,19 +98,16 @@ export default function SetCards() {
     }
   };
 
+  const renderCard = ({ item }) => (
+    <Card 
+      card={item} 
+      onCollectionUpdate={onCollectionUpdate}
+      onWishlistUpdate={onWishlistUpdate}
+    />
+  );
+
   return (
     <View style={styles.container}>
-      {setDetails && (
-        <View style={styles.setHeader}>
-          <Text style={styles.setTitle}>{setDetails.name}</Text>
-          {setDetails.release_date && (
-            <Text style={styles.setSubtitle}>
-              Sortie le {new Date(setDetails.release_date).toLocaleDateString('fr-FR')}
-            </Text>
-          )}
-        </View>
-      )}
-
       <TextInput
         style={styles.searchInput}
         placeholder="Rechercher des cartes..."
@@ -192,24 +166,29 @@ export default function SetCards() {
           </TouchableOpacity>
         </View>
       ) : (
-        <FlatList
-          data={filteredCards}
-          renderItem={({ item }) => (
-            <Card 
-              card={item} 
-              onCollectionUpdate={onCollectionUpdate}
-              onWishlistUpdate={onWishlistUpdate}
-            />
+        <>
+          <FlatList
+            data={filteredCards}
+            renderItem={renderCard}
+            keyExtractor={item => item.id.toString()}
+            numColumns={2}
+            contentContainerStyle={styles.cardList}
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>
+                Aucune carte ne correspond à votre recherche.
+              </Text>
+            }
+          />
+          
+          {activeFilter === 'all' && (
+            <TouchableOpacity 
+              style={styles.collectionButton}
+              onPress={() => handleFilterChange('owned')}
+            >
+              <Text style={styles.collectionButtonText}>Voir ma collection</Text>
+            </TouchableOpacity>
           )}
-          keyExtractor={item => item.id.toString()}
-          numColumns={2}
-          contentContainerStyle={styles.cardList}
-          ListEmptyComponent={
-            <Text style={styles.emptyText}>
-              Aucune carte ne correspond à votre recherche.
-            </Text>
-          }
-        />
+        </>
       )}
     </View>
   );
@@ -220,25 +199,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
     padding: 10,
-  },
-  setHeader: {
-    marginBottom: 15,
-    padding: 10,
-    backgroundColor: colors.surface,
-    borderRadius: 10,
-    elevation: 2,
-  },
-  setTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: colors.primary,
-    textAlign: 'center',
-  },
-  setSubtitle: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginTop: 5,
   },
   searchInput: {
     backgroundColor: '#fff',
@@ -271,7 +231,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   cardList: {
-    paddingBottom: 20,
+    paddingBottom: 80,
   },
   loader: {
     flex: 1,
@@ -286,7 +246,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 16,
-    color: colors.error,
+    color: 'red',
     textAlign: 'center',
     marginBottom: 20,
   },
@@ -303,7 +263,22 @@ const styles = StyleSheet.create({
   emptyText: {
     textAlign: 'center',
     fontSize: 16,
-    color: colors.textSecondary,
+    color: '#666',
     marginTop: 30,
+  },
+  collectionButton: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    backgroundColor: colors.primary,
+    paddingVertical: 12,
+    borderRadius: 25,
+    alignItems: 'center',
+  },
+  collectionButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });

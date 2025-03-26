@@ -76,10 +76,12 @@ export default function SetCardsScreen() {
 
   const handleWishlistUpdate = useCallback(() => {
     // Cette fonction sera appelée quand une carte est ajoutée/retirée de la wishlist
+    loadCards(); // Refresh the cards to get updated wishlist status
   }, []);
 
   const handleCollectionUpdate = useCallback(() => {
     // Cette fonction sera appelée quand une carte est ajoutée/retirée de la collection
+    loadCards(); // Refresh the cards to get updated collection status
   }, []);
 
   if (error) {
